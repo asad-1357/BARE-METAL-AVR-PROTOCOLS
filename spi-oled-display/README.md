@@ -1,55 +1,34 @@
-# SPI SSD1306 OLED Display Driver (Bare-Metal AVR)
+# 8-Bit Binary Counter using Bare-Metal AVR SPI & 74HC595
 
-Register-level firmware for ATmega328P (Arduino Uno) demonstrating SPI
-master communication with an SSD1306 OLED display, without using the
-Arduino `SPI.h` library.
+This repository contains a bare-metal AVR C implementation of an 8-bit binary counter running on an ATmega328P, driving a **74HC595 Shift Register** over the hardware SPI bus. 
 
-## Overview
-Initializes an SSD1306 128x64 OLED display over SPI and drives the full
-screen buffer directly via raw AVR SPI registers — no abstraction
-libraries used.
+## 🛠️ Hardware Wiring & Logic Analyzer Mapping
 
-## Features
-- SPI master implementation using raw `SPCR`/`SPSR`/`SPDR` registers
-- Manual Chip Select (CS) and Data/Command (DC) line control
-- Full SSD1306 initialization sequence (charge pump, addressing mode,
-  contrast, COM configuration)
-- Full-screen fill routine demonstrating page/column addressing
+To verify the synchronous SPI timings and binary outputs, an 8-channel logic analyzer was configured in the Wokwi simulation environment as follows:
 
-## Hardware
-- Arduino Uno (ATmega328P)
-- SSD1306 128x64 SPI OLED display
-- Wiring: SCK → D13, MOSI → D11, CS → D10, DC → D9, RES → D8
+| Analyzer Channel | Target Pin / Microcontroller | Description / Function |
+| :--- | :--- | :--- |
+| **D0** | Arduino Pin 13 (SCK / PB5) | **SHCP (Shift Clock):** Generates 8 pulses per burst |
+| **D1** | Arduino Pin 11 (MOSI / PB3) | **DS (Data Serial):** Transmits binary bits (MSB first) |
+| **D2** | Arduino Pin 10 (SS / CS / PB2) | **STCP (Storage/Latch Clock):** Updates output pins instantly on RISING edge |
+| **D3** | 74HC595 Pin 15 ($Q_0$) | LSB (Least Significant Bit) - Toggles every 200ms |
+| **D4** | 74HC595 Pin 1 ($Q_1$) | Bit 1 - Toggles every 400ms |
+| **D5** | 74HC595 Pin 2 ($Q_2$) | Bit 2 - Toggles every 800ms |
+| **D6** | 74HC595 Pin 3 ($Q_3$) | Bit 3 - Toggles every 1.6s |
+| **D7** | 74HC595 Pin 7 ($Q_7$) | MSB (Most Significant Bit) - Toggles every 25.6s |
 
-## Registers Used
-| Register | Purpose |
-|---|---|
-| `SPCR` | Enable SPI, set Master mode and clock rate |
-| `SPSR` | Poll `SPIF` flag to detect transfer completion |
-| `SPDR` | Byte being transmitted over MOSI |
-| `DDRB`, `PORTB` | Control CS, DC, and RES lines manually |
+---
 
-## How It Works
-1. `SPI_init()` configures SPI pins and enables master mode
-2. `OLED_reset()` pulses the RES line to hardware-reset the display
-3. `OLED_init()` sends the SSD1306's required ~15-command setup sequence
-4. `OLED_command()` / `OLED_data()` toggle the DC line to distinguish
-   commands from pixel data, with CS pulled low during each transfer
-5. `OLED_fillScreen()` writes a full 128x64 pixel pattern across all 8
-   display pages
+## 📈 Waveform Analysis & Observations
 
-## Build & Run
-Tested in TinkerCAD Circuits (AVR-GCC toolchain). To run locally:
-```
-avr-gcc -mmcu=atmega328p -DF_CPU=16000000UL -Os -o main.elf src/main.c
-avr-objcopy -O ihex main.elf main.hex
-avrdude -c arduino -p atmega328p -P <port> -U flash:w:main.hex
-```
+By exporting the simulation trace as a `.vcd` (Value Change Dump) file and loading it into a waveform viewer (`vcdrom.github.io`), we observe the exact clock-to-data behavior:
 
-## Demo
-Display alternates between fully lit and fully cleared every 500ms,
-confirming successful SPI command/data transfer and page addressing.
+### 1. SPI Protocol Verification (D0, D1, D2)
+* **Clock Idle State:** The SPI peripheral is configured in **Mode 0** ($\text{CPOL}=0$, $\text{CPHA}=0$). The clock line (`D0`) remains stable **LOW** during idle periods and bursts into exactly 8 clean square wave pulses only during active transmissions.
+* **Data Serial Stream (`D1`):** Represents the serialized byte value. For instance:
+  * At $200\text{ms}$ (`Count = 1` $\rightarrow$ `00000001`), `D1` stays LOW for the first 7 clock pulses and transitions **HIGH** exactly on the 8th pulse.
+  * At $1000\text{ms}$ (`Count = 5` $\rightarrow$ `00000101`), `D1` shows clear alternating pulses reflecting the bit sequence.
 
-## Author
-Asad Sajid — Final Year Electronics Engineering, NED University of
-Engineering & Technology
+### 2. Synchronous Latch & Binary Outputs
+* Unlike asynchronous ripple counters where stage changes trigger successive pins sequentially, the 74HC595 updates its output lines **simultaneously**.
+* The exact microsecond the Latch line (`D2`) experiences a rising edge, the parallel outputs (`D3` through `D7`) shift states instantly in a perfectly aligned vertical transition vector.
